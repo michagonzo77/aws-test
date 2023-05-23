@@ -1,0 +1,317 @@
+author: "kubiyamg@gmail.com"
+version: 3
+type: "conversation"
+name: "create a new AWS Control Tower account"
+steps:
+  - type: "action"
+    id: "get_root"
+    action:
+      name: "ct_list_roots"
+      store: "aws"
+      async: false
+      parameters: {}
+  - type: "jq"
+    id: "root_id"
+    jq: ".get_root.Roots[].Id"
+  - type: "action"
+    id: "get_ou_units"
+    action:
+      name: "ct_get_all_ou"
+      store: "aws"
+      async: false
+      parameters:
+        root_id: "${root_id}"
+  - type: "jq"
+    id: "ou_units_name"
+    jq: ".get_ou_units.OrganizationalUnits[].Name"
+  - type: "input"
+    value_type: "enum"
+    id: "organizational_unit"
+    prompt: "Select an Organizational Unit to enable all the controls that will be configured for this account."
+    possible_values: "${ou_units_name}"
+  - type: "input"
+    value_type: "text"
+    id: "account_email"
+    prompt: "Specify an email in order to create a new account in your landing zone. Must be from 6-64 characters. Email is not case sensitive."
+  - type: "input"
+    value_type: "text"
+    id: "account_name"
+    prompt: "Display name for account as it appears in AWS Control Tower. Must contain only letters, numbers, periods, dashes, underscores, spaces. Must begin with letter or number."
+  - type: "input"
+    value_type: "text"
+    id: "sso_user_email"
+    prompt: "Designate an IAM Identity Center user email. Must be from 6 to 64 characters long."
+  - type: "input"
+    value_type: "text"
+    id: "sso_user_first_name"
+    prompt: "What is your first name intended for creating an IAM Identity Center user?"
+  - type: "input"
+    value_type: "text"
+    id: "sso_user_last_name"
+    prompt: "What is your last name intended for creating an IAM Identity Center user?"
+  - type: "input"
+    value_type: "text"
+    id: "provisioned_product"
+    prompt: "Choose a unique name for the Provisioned Product Name"
+  - type: "jq"
+    id: "ou_unit_id"
+    jq: ".get_ou_units.OrganizationalUnits[] | select(.Name==\"${organizational_unit}\") | .Id"
+  - type: "action"
+    id: "create_account"
+    action:
+      name: "create_new_account"
+      store: "aws"
+      async: false
+      parameters:
+        account_email: "${account_email}"
+        account_name: "${account_name}"
+        ou_unit: "${organizational_unit} (${ou_unit_id})"
+        provisioned_product_name: "${provisioned_product}"
+        sso_user_email: "${sso_user_email}"
+        sso_user_first_name: "${sso_user_first_name}"
+        sso_user_last_name: "${sso_user_last_name}"
+  - type: "jq"
+    id: "return_account"
+    jq: ".create_account.RecordDetail"
+  - type: "message"
+    id: "show_account"
+    prompt: "*Product details:*\n*Product name:* ${return_account.ProvisionedProductName}\n*Status:* ${return_account.Status}\n*Currently Enrolling - I will message you when account is enrolled*"
+  - type: "jq"
+    id: "get_path"
+    jq: ".create_account.RecordDetail.RecordId"
+  - type: "action"
+    id: "check_status"
+    action:
+      name: "describe_record"
+      store: "aws"
+      run_in: "8m"
+      async: false
+      parameters:
+        path_id: "${get_path}"
+  - type: "jq"
+    id: "get_status"
+    jq: ".check_status.RecordDetail"
+  - type: "condition"
+    id: "fail_condition"
+    if:
+      arg: "${get_status.Status}"
+      is: "equals"
+      arg2: "FAILED"
+      then:
+        - type: "message"
+          id: "show_fail"
+          prompt: "*Product details:*\n*Product name:* ${get_status.ProvisionedProductName}\n*Status:* ${get_status.Status}\n"
+      else:
+        - type: "condition"
+          id: "status_condition"
+          if:
+            arg: "${get_status.Status}"
+            is: "equals"
+            arg2: "SUCCEEDED"
+            then:
+              - type: "message"
+                id: "show_account2"
+                prompt: "*Product details:*\n*Product name:* ${get_status.ProvisionedProductName}\n*Status:* ${get_status.Status}\n"
+              - type: "exit"
+                id: "exit"
+            else:
+              - type: "action"
+                id: "check_status2"
+                action:
+                  name: "describe_record"
+                  store: "aws"
+          
+                  run_in: "8m"
+                  async: false
+                  parameters:
+                    path_id: "${get_path}"
+              - type: "jq"
+                id: "get_status2"
+                jq: ".check_status2.RecordDetail"
+              - type: "condition"
+                id: "fail_condition2"
+                if:
+                  arg: "${get_status2.Status}"
+                  is: "equals"
+                  arg2: "FAILED"
+                  then:
+                    - type: "message"
+                      id: "show_fail2"
+                      prompt: "*Product details:*\n*Product name:* ${get_status2.ProvisionedProductName}\n*Status:* ${get_status2.Status}\n"
+                    - type: "exit"
+                      id: "exit2"
+                  else:
+                    - type: "condition"
+                      id: "status_condition2"
+                      if:
+                        arg: "${get_status2.Status}"
+                        is: "equals"
+                        arg2: "SUCCEEDED"
+                        then:
+                          - type: "message"
+                            id: "show_account3"
+                            prompt: "*Product details:*\n*Product name:* ${get_status2.ProvisionedProductName}\n*Status:* ${get_status2.Status}\n"
+                          - type: "exit"
+                            id: "exit3"
+                        else:
+                          - type: "action"
+                            id: "check_status3"
+                            action:
+                              name: "describe_record"
+                              store: "aws"
+                      
+                              run_in: "5m"
+                              async: false
+                              parameters:
+                                path_id: "${get_path}"
+                          - type: "jq"
+                            id: "get_status3"
+                            jq: ".check_status3.RecordDetail"
+                          - type: "condition"
+                            id: "fail_condition3"
+                            if:
+                              arg: "${get_status3.Status}"
+                              is: "equals"
+                              arg2: "FAILED"
+                              then:
+                                - type: "message"
+                                  id: "show_fail3"
+                                  prompt: "*Product details:*\n*Product name:* ${get_status3.ProvisionedProductName}\n*Status:* ${get_status3.Status}\n"
+                                - type: "exit"
+                                  id: "exit4"
+                              else:
+                                - type: "condition"
+                                  id: "status_condition3"
+                                  if:
+                                    arg: "${get_status3.Status}"
+                                    is: "equals"
+                                    arg2: "SUCCEEDED"
+                                    then:
+                                      - type: "message"
+                                        id: "show_account4"
+                                        prompt: "*Product details:*\n*Product name:* ${get_status3.ProvisionedProductName}\n*Status:* ${get_status3.Status}\n"
+                                      - type: "exit"
+                                        id: "exit5"
+                                    else:
+                                      - type: "action"
+                                        id: "check_status4"
+                                        action:
+                                          name: "describe_record"
+                                          store: "aws"
+                                  
+                                          run_in: "5m"
+                                          async: false
+                                          parameters:
+                                            path_id: "${get_path}"
+                                      - type: "jq"
+                                        id: "get_status4"
+                                        jq: ".check_status4.RecordDetail"
+                                      - type: "condition"
+                                        id: "fail_condition4"
+                                        if:
+                                          arg: "${get_status4.Status}"
+                                          is: "equals"
+                                          arg2: "FAILED"
+                                          then:
+                                            - type: "message"
+                                              id: "show_fail4"
+                                              prompt: "*Product details:*\n*Product name:* ${get_status4.ProvisionedProductName}\n*Status:* ${get_status4.Status}\n"
+                                            - type: "exit"
+                                              id: "exit6"
+                                          else:
+                                            - type: "condition"
+                                              id: "status_condition4"
+                                              if:
+                                                arg: "${get_status4.Status}"
+                                                is: "equals"
+                                                arg2: "SUCCEEDED"
+                                                then:
+                                                  - type: "message"
+                                                    id: "show_account5"
+                                                    prompt: "*Product details:*\n*Product name:* ${get_status4.ProvisionedProductName}\n*Status:* ${get_status4.Status}\n"
+                                                  - type: "exit"
+                                                    id: "exit7"
+                                                else:
+                                                  - type: "action"
+                                                    id: "check_status5"
+                                                    action:
+                                                      name: "describe_record"
+                                                      store: "aws"
+                                              
+                                                      run_in: "5m"
+                                                      async: false
+                                                      parameters:
+                                                        path_id: "${get_path}"
+                                                  - type: "jq"
+                                                    id: "get_status5"
+                                                    jq: ".check_status5.RecordDetail"
+                                                  - type: "condition"
+                                                    id: "fail_condition5"
+                                                    if:
+                                                      arg: "${get_status5.Status}"
+                                                      is: "equals"
+                                                      arg2: "FAILED"
+                                                      then:
+                                                        - type: "message"
+                                                          id: "show_fail5"
+                                                          prompt: "*Product details:*\n*Product name:* ${get_status5.ProvisionedProductName}\n*Status:* ${get_status5.Status}\n"
+                                                        - type: "exit"
+                                                          id: "exit8"
+                                                      else:
+                                                        - type: "condition"
+                                                          id: "status_condition5"
+                                                          if:
+                                                            arg: "${get_status5.Status}"
+                                                            is: "equals"
+                                                            arg2: "SUCCEEDED"
+                                                            then:
+                                                              - type: "message"
+                                                                id: "show_account6"
+                                                                prompt: "*Product details:*\n*Product name:* ${get_status5.ProvisionedProductName}\n*Status:* ${get_status5.Status}\n"
+                                                              - type: "exit"
+                                                                id: "exit9"
+                                                            else:
+                                                              - type: "action"
+                                                                id: "check_status6"
+                                                                action:
+                                                                  name: "describe_record"
+                                                                  store: "aws"
+                                                          
+                                                                  run_in: "5m"
+                                                                  async: false
+                                                                  parameters:
+                                                                    path_id: "${get_path}"
+                                                              - type: "jq"
+                                                                id: "get_status6"
+                                                                jq: ".check_status6.RecordDetail"
+                                                              - type: "condition"
+                                                                id: "fail_condition6"
+                                                                if:
+                                                                  arg: "${get_status6.Status}"
+                                                                  is: "equals"
+                                                                  arg2: "FAILED"
+                                                                  then:
+                                                                    - type: "message"
+                                                                      id: "show_fail6"
+                                                                      prompt: "*Product details:*\n*Product name:* ${get_status6.ProvisionedProductName}\n*Status:* ${get_status6.Status}\n"
+                                                                    - type: "exit"
+                                                                      id: "exit10"
+                                                                  else:
+                                                                    - type: "condition"
+                                                                      id: "status_condition6"
+                                                                      if:
+                                                                        arg: "${get_status6.Status}"
+                                                                        is: "equals"
+                                                                        arg2: "SUCCEEDED"
+                                                                        then:
+                                                                          - type: "message"
+                                                                            id: "show_account7"
+                                                                            prompt: "*Product details:*\n*Product name:* ${get_status6.ProvisionedProductName}\n*Status:* ${get_status6.Status}\n"
+                                                                          - type: "exit"
+                                                                            id: "exit11"
+                                                                        else:
+                                                                          - type: "message"
+                                                                            id: "show_account8"
+                                                                            prompt: "*Product details:*\n*Product name:* ${get_status6.ProvisionedProductName}\n*Status:* ${get_status6.Status}\n"
+                                                                          - type: "exit"
+                                                                            id: "exit12"
